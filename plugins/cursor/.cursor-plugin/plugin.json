@@ -1,0 +1,18 @@
+{
+  "name": "context-graph",
+  "displayName": "Context Graph",
+  "description": "Local semantic memory for coding agents — recall and ingest via MCP",
+  "version": "0.1.0",
+  "author": {
+    "name": "Context Graph"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "memory",
+    "context",
+    "semantics",
+    "knowledge-graph",
+    "mcp"
+  ],
+  "skills": "./skills/"
+}

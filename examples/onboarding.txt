@@ -1,0 +1,7 @@
+Onboarding notes
+
+New contributors start the stack with docker compose, then point Cursor at
+http://localhost:8080/mcp/sse using the local API_KEY.
+
+Ingest this examples folder so recall can cite the Postgres session decision
+and the Neo4j community-edition constraint.

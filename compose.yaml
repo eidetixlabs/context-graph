@@ -1,0 +1,208 @@
+name: context-graph
+
+services:
+  neo4j:
+    image: neo4j:5.26-community
+    entrypoint: ["/bin/bash", "/neo4j-entrypoint.sh"]
+    environment:
+      NEO4J_AUTH: neo4j/devpassword
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+      NEO4J_dbms_security_procedures_allowlist: apoc.*
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - ./deploy/neo4j-entrypoint.sh:/neo4j-entrypoint.sh:ro
+      - ./base/db/neo4j:/neo4j-init:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 2>/dev/null || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 8
+      start_period: 60s
+    restart: unless-stopped
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: eidetix
+      POSTGRES_DB: eidetix
+      POSTGRES_PASSWORD: devpassword
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eidetix -d eidetix"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  postgres-migrate:
+    build:
+      context: .
+      dockerfile: webserver/Dockerfile
+    entrypoint: ["python", "-m", "base.db.migrations", "--single-database"]
+    environment:
+      DATABASE_URL: postgresql://eidetix:devpassword@postgres:5432/eidetix
+      DATABASE_SSL: "0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  minio:
+    image: localstack/localstack:3.8
+    environment:
+      SERVICES: s3
+      AWS_DEFAULT_REGION: us-east-1
+    volumes:
+      - minio_data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  webserver:
+    build:
+      context: .
+      dockerfile: webserver/Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: devpassword
+      DATABASE_URL: postgresql://eidetix:devpassword@postgres:5432/eidetix
+      DATABASE_SSL: "0"
+      API_KEY: ${API_KEY:-dev-local-key}
+      ORGANISATION_ID: org:dev
+      EIDETIX_ALLOW_DEFAULT_ORG_FALLBACK: "1"
+      S3_ENDPOINT_URL: http://minio:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_S3_BUCKET: eidetix
+      AWS_REGION: us-east-1
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      PROCESSOR_OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      INFERENCE_SERVICE_URL: http://inference-service:9111
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      postgres-migrate:
+        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 40s
+    restart: unless-stopped
+
+  processor-trace:
+    build:
+      context: .
+      dockerfile: processor/Dockerfile
+    command: ["processor.worker", "--provider", "trace"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: devpassword
+      DATABASE_URL: postgresql://eidetix:devpassword@postgres:5432/eidetix
+      DATABASE_SSL: "0"
+      ORGANISATION_ID: org:dev
+      EIDETIX_ALLOW_DEFAULT_ORG_FALLBACK: "1"
+      S3_ENDPOINT_URL: http://minio:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_S3_BUCKET: eidetix
+      AWS_REGION: us-east-1
+      PROCESSOR_AWS_S3_BUCKET: eidetix
+      PROCESSOR_POLL_INTERVAL_SECONDS: "15"
+      PROCESSOR_EIDETIX_URL: http://webserver:8080
+      PROCESSOR_EIDETIX_API_KEY: ${API_KEY:-dev-local-key}
+      PROCESSOR_EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
+      PROCESSOR_INFERENCE_URL: http://inference-service:9111
+      PROCESSOR_SCORING_MODEL: openai:gpt-4o-mini
+      PROCESSOR_ENTITY_MODEL: openai:gpt-4o-mini
+      PROCESSOR_EXTRACTION_MODEL: openai:gpt-4o-mini
+      PROCESSOR_TRACE_LINKER_MODEL: openai:gpt-4o-mini
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      PROCESSOR_OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    depends_on:
+      webserver:
+        condition: service_healthy
+    restart: unless-stopped
+
+  processor-portal:
+    build:
+      context: .
+      dockerfile: processor/Dockerfile
+    command: ["processor.worker", "--provider", "portal"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: devpassword
+      DATABASE_URL: postgresql://eidetix:devpassword@postgres:5432/eidetix
+      DATABASE_SSL: "0"
+      ORGANISATION_ID: org:dev
+      EIDETIX_ALLOW_DEFAULT_ORG_FALLBACK: "1"
+      S3_ENDPOINT_URL: http://minio:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_S3_BUCKET: eidetix
+      AWS_REGION: us-east-1
+      PROCESSOR_AWS_S3_BUCKET: eidetix
+      PROCESSOR_POLL_INTERVAL_SECONDS: "15"
+      PROCESSOR_EIDETIX_URL: http://webserver:8080
+      PROCESSOR_EIDETIX_API_KEY: ${API_KEY:-dev-local-key}
+      PROCESSOR_EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
+      PROCESSOR_INFERENCE_URL: http://inference-service:9111
+      PROCESSOR_SCORING_MODEL: openai:gpt-4o-mini
+      PROCESSOR_ENTITY_MODEL: openai:gpt-4o-mini
+      PROCESSOR_EXTRACTION_MODEL: openai:gpt-4o-mini
+      PROCESSOR_TRACE_LINKER_MODEL: openai:gpt-4o-mini
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      PROCESSOR_OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    depends_on:
+      webserver:
+        condition: service_healthy
+    restart: unless-stopped
+
+  inference-service:
+    profiles: ["inference"]
+    build:
+      context: .
+      dockerfile: inference-service/Dockerfile
+    ports:
+      - "9111:9111"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9111/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    restart: unless-stopped
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
+  postgres_data:
+  minio_data:

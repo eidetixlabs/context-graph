@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Eidetix operator console</title>
+  <style>
+    :root { color-scheme: light; font-family: ui-sans-serif, system-ui, sans-serif; }
+    body { margin: 0; background: #f6f4ef; color: #1f2937; }
+    main { max-width: 960px; margin: 0 auto; padding: 32px 20px 64px; }
+    h1 { font-size: 24px; margin: 0 0 8px; }
+    p, label { color: #4b5563; }
+    section { margin-top: 28px; }
+    form, .card { background: #fff; border: 1px solid #e5e0d6; border-radius: 12px; padding: 16px; }
+    label { display: block; font-size: 12px; font-weight: 600; margin: 10px 0 4px; }
+    input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #d6d3cd; border-radius: 8px; }
+    button { margin-top: 12px; background: #1d4ed8; color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+    button.secondary { background: #374151; }
+    table { width: 100%; border-collapse: collapse; background: #fff; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eee; font-size: 13px; }
+    .error { color: #b91c1c; }
+    .ok { color: #166534; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 720px) { .row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Eidetix operator console</h1>
+    <p>Create and watch invite-only cloud tenants. Paste an owner or operator bearer token to continue.</p>
+
+    <section>
+      <form id="auth-form">
+        <label>Bearer token</label>
+        <input id="token" type="password" autocomplete="off" required />
+        <button type="submit">Load tenants</button>
+        <p id="auth-status"></p>
+      </form>
+    </section>
+
+    <section>
+      <h2>Create tenant</h2>
+      <form id="create-form">
+        <div class="row">
+          <div>
+            <label>Organization name</label>
+            <input id="name" required />
+          </div>
+          <div>
+            <label>Slug</label>
+            <input id="slug" placeholder="acme-corp" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>Owner name</label>
+            <input id="owner_name" required />
+          </div>
+          <div>
+            <label>Owner email</label>
+            <input id="owner_email" type="email" required />
+          </div>
+        </div>
+        <label>Temporary owner password</label>
+        <input id="owner_password" type="password" minlength="10" required />
+        <button type="submit">Provision tenant</button>
+        <p id="create-status"></p>
+      </form>
+    </section>
+
+    <section>
+      <h2>Tenants</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Org</th>
+            <th>Status</th>
+            <th>Owner</th>
+            <th>Domain</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tenant-rows"></tbody>
+      </table>
+    </section>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let token = "";
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, {
+        ...options,
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+          ...(options.headers || {}),
+        },
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body.detail || response.statusText);
+      }
+      return body;
+    }
+
+    async function refresh() {
+      const me = await api("/tenants/me");
+      $("auth-status").textContent = me.operator
+        ? `Signed in as operator ${me.email}`
+        : `Signed in as ${me.email}, but not an operator`;
+      $("auth-status").className = me.operator ? "ok" : "error";
+      const data = await api("/tenants");
+      $("tenant-rows").innerHTML = (data.tenants || []).map((tenant) => `
+        <tr>
+          <td>${tenant.name}<br><small>${tenant.org_id}</small></td>
+          <td>${tenant.status}</td>
+          <td>${tenant.owner_email}</td>
+          <td>${tenant.email_domain || ""}</td>
+          <td>${tenant.status === "ready" ? `<button class="secondary" data-org="${tenant.org_id}">Suspend</button>` : ""}</td>
+        </tr>
+      `).join("");
+    }
+
+    $("auth-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      token = $("token").value.trim();
+      try {
+        await refresh();
+      } catch (error) {
+        $("auth-status").textContent = error.message;
+        $("auth-status").className = "error";
+      }
+    });
+
+    $("create-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      $("create-status").textContent = "Provisioning…";
+      try {
+        const tenant = await api("/tenants", {
+          method: "POST",
+          body: JSON.stringify({
+            name: $("name").value,
+            slug: $("slug").value,
+            owner_name: $("owner_name").value,
+            owner_email: $("owner_email").value,
+            owner_password: $("owner_password").value,
+          }),
+        });
+        $("create-status").textContent = `Ready: ${tenant.org_id}`;
+        $("create-status").className = "ok";
+        await refresh();
+      } catch (error) {
+        $("create-status").textContent = error.message;
+        $("create-status").className = "error";
+      }
+    });
+
+    document.addEventListener("click", async (event) => {
+      const button = event.target.closest("button[data-org]");
+      if (!button) return;
+      try {
+        await api(`/tenants/${button.dataset.org}/suspend`, { method: "POST" });
+        await refresh();
+      } catch (error) {
+        $("auth-status").textContent = error.message;
+        $("auth-status").className = "error";
+      }
+    });
+  </script>
+</body>
+</html>

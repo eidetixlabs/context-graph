@@ -1,0 +1,13 @@
+.git
+.venv
+venv
+__pycache__
+.pytest_cache
+.env
+*.pyc
+processor/test
+base/test
+plugins
+examples
+docs
+.github

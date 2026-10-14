@@ -1,0 +1,4 @@
+fastapi
+uvicorn[standard]
+sentence-transformers>=2.2.0
+gliner>=0.2.0

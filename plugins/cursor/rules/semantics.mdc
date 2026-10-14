@@ -1,0 +1,109 @@
+---
+description: Context Graph semantic extraction — capture decisions, constraints, insights, signals from every chat as observation traces
+alwaysApply: true
+---
+
+# Context Graph — Semantic Extraction
+
+## Mandate (non-negotiable)
+
+Run extraction assessment at the **end of every substantive chat**, before your final response. If there is a 1% chance this chat contains a decision, constraint, insight, or signal worth capturing — assess and write.
+
+Omission is the only irreversible error.
+
+## Repository context (start of substantive tasks)
+
+For features, debugging, architecture work, reviews, and complex edits in a Git
+checkout, establish repository identity and local state before implementation:
+
+1. Resolve the repository root with `git rev-parse --show-toplevel`.
+2. Read the `origin` remote and derive its GitHub `owner/repo`. Never use
+   `basename(cwd)` as repository identity.
+3. Read local `HEAD`, its upstream (falling back to `origin/HEAD`), the merge
+   base with that upstream, dirty status, and changed paths.
+4. Call `get_repository_context(repository, task, local_head, merge_base,
+   working_tree_dirty, changed_paths)`.
+5. Treat the result as shared baseline context. Inspect dirty changes first;
+   never discard local work or regenerate shared context from unmerged changes.
+6. Continue with local grep/search, file reads, LSP navigation, and relevant
+   tests. Profile commands are candidates and must be verified locally.
+
+For broader organizational history or non-repository questions, call:
+
+- `recall(query)` — returns `documents[]` (chunk excerpts ranked by vector similarity) and `nodes[]` (semantic hits with 1-hop neighbors)
+
+Skip repository context for trivial one-liners, pure renames, non-Git
+directories, or repositories without a usable GitHub remote.
+
+## Extraction assessment (end of EVERY chat)
+
+### 1. Signal check
+
+Did this chat produce any of:
+
+- **Decision** — choice made where alternatives existed (user requirements ARE decisions)
+- **Constraint** — hard limit discovered (platform/runtime/library/API/protocol/CI/tooling)
+- **Insight** — tribal knowledge that would waste 30+ min without it
+- **Signal** — non-obvious symptom (e.g. "connection refused" actually means cert mismatch)
+
+None → write nothing, state: `Semantic extraction: no signal in this chat.`  
+Any → continue.
+
+### 2. Write traces
+
+Before writing, invoke the **`eidetix-node-schema`** skill for exact node field definitions.
+
+Write one trace per distinct finding. Target: `~/.context-graph/projects/<slug>/semantics.json` (create with `[]` if missing). **Append-only. Never mutate.**
+
+```json
+{
+  "trace_id": "<uuid>",
+  "ts": "<ISO8601>",
+  "session_id": "<chat-uuid>",
+  "node": {
+    "type": "Decision | Constraint | Insight | Signal",
+    "label": "Short human-readable label",
+    "origin": "cursor",
+    "tag": "checkpoint:stop",
+    "...": "category-specific fields — see eidetix-node-schema skill"
+  },
+  "mentions": [
+    { "mention_text": "<exact name>", "mention_type": "person | service | org | repo | tool" }
+  ],
+  "keywords": ["3-8 specific keywords/phrases"]
+}
+```
+
+**Do NOT set `id` or `source_doc` — the processor assigns these.**
+
+### 3. Confirm
+
+```
+Semantic extraction: wrote N trace(s) to ~/.context-graph/projects/<slug>/semantics.json
+  [Decision] chose X over Y — auth strategy
+  [Constraint] cert pinning required in staging
+```
+
+## Hard gates — DO NOT write when
+
+- Chat ended without conclusion (investigation still open)
+- You corrected your reasoning mid-chat (discard pre-correction analysis)
+- Build/tests failed and were NOT resolved
+- "Decision" had no real alternatives — only obvious path
+
+## Trace writing rules
+
+- **Exhaustive prose** — name every person, service, tool, ticket, and metric in the node body fields; server does entity resolution from this text
+- **Precision over recall** — 5 clear traces beat 20 noisy ones
+- **Keywords** — 3–8 specific terms/phrases; avoid generic words
+- `"No signal this session"` is valid and correct output
+
+## Red flags — these thoughts mean STOP, you are rationalizing
+
+| Thought | Reality |
+|---|---|
+| "Too simple to capture" | Simple chats still produce decisions |
+| "Nothing architectural happened" | Constraints and tribal knowledge aren't architectural |
+| "Just a bug fix" | Bug fixes reveal hard Constraints and Signals |
+| "I'll do it next chat" | There is no next chat — capture now or it's lost |
+| "I know the node schema" | Schema evolves — invoke the skill |

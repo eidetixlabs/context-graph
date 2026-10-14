@@ -1,0 +1,81 @@
+{
+  "_comment": [
+    "Context Graph Claude Code hook settings.",
+    "Manual install: merge 'hooks' into <allowed-root>\\.claude\\settings.local.json.",
+    "Replace HOOKS_DIR with the absolute path to the hooks/ directory.",
+    "Use exec form (command + args) so paths with spaces are handled correctly.",
+    "Do NOT commit this file with real paths or tokens."
+  ],
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["HOOKS_DIR/session-start.mjs"]
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["HOOKS_DIR/user-prompt-submit.mjs"]
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["HOOKS_DIR/post-tool-use.mjs"]
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["HOOKS_DIR/post-tool-use-failure.mjs"]
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["HOOKS_DIR/stop.mjs"]
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["HOOKS_DIR/session-end.mjs"],
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}
